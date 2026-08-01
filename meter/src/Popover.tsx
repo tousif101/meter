@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Bar, Num, PulseDot } from "./components";
 import { label, mono, t, ui } from "./theme";
 import {
@@ -36,6 +38,16 @@ function Sparkline({ snapshot }: { snapshot: UsageSnapshot }) {
 
 export default function Popover() {
   const snapshot = useUsage();
+
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    const unlisten = win.onFocusChanged(({ payload: focused }) => {
+      if (!focused) win.hide();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
   const today = snapshot?.today;
   const total = today ? today.claudeCost + today.codexCost : 0;
   const block = snapshot?.block;
@@ -44,8 +56,7 @@ export default function Popover() {
     <div
       style={{
         fontFamily: ui,
-        background: "rgba(30,33,38,.96)",
-        border: "1px solid rgba(255,255,255,.09)",
+        background: "rgba(30,33,38,.98)",
         borderRadius: 12,
         boxShadow: "0 18px 40px rgba(0,0,0,.5)",
         padding: 14,
