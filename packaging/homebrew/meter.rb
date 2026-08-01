@@ -1,24 +1,17 @@
-# Homebrew cask for Meter.
-# Lives in the tap repo: github.com/tousif101/homebrew-tap → Casks/meter.rb
-# After each release: update `version` and the two sha256 values
-# (shasum -a 256 <dmg> for each arch), then push the tap repo.
 cask "meter" do
   version "0.1.0"
-
   on_arm do
-    sha256 "REPLACE_WITH_AARCH64_DMG_SHA256"
+    sha256 "8b0a4d5bd7d838923348878a751bce0f5283e25dfff875830de389aa329eb3b7"
     url "https://github.com/tousif101/meter/releases/download/v#{version}/Meter_#{version}_aarch64.dmg"
   end
   on_intel do
-    sha256 "REPLACE_WITH_X64_DMG_SHA256"
+    sha256 "b2d42899161c6700fb55dfa55c6c0866d31cb6e19ca06ea77b2a7261c0be560a"
     url "https://github.com/tousif101/meter/releases/download/v#{version}/Meter_#{version}_x64.dmg"
   end
-
   name "Meter"
   desc "Local-first menu bar usage monitor for Claude Code and Codex"
   homepage "https://github.com/tousif101/meter"
 
-  depends_on macos: ">= :catalina"
 
   app "Meter.app"
 
@@ -29,10 +22,9 @@ cask "meter" do
     "~/Library/Saved Application State/com.tousifchowdhury.meter.savedState",
   ]
 
-  # Remove this caveat once builds are signed + notarized with a Developer ID.
   caveats <<~EOS
     Meter is not yet notarized by Apple. On first launch, macOS may block it.
-    Either right-click Meter.app → Open, or run:
+    Either right-click Meter.app -> Open, or run:
       xattr -d com.apple.quarantine /Applications/Meter.app
   EOS
 end
