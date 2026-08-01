@@ -23,8 +23,9 @@ cask "meter" do
   ]
 
   caveats <<~EOS
-    Meter is not yet notarized by Apple. On first launch, macOS may block it.
-    Either right-click Meter.app -> Open, or run:
+    Meter is not yet notarized by Apple, so macOS will block the first launch.
+    Fastest fix:
       xattr -d com.apple.quarantine /Applications/Meter.app
+    Or: open Meter once, then System Settings -> Privacy & Security -> "Open Anyway".
   EOS
 end
