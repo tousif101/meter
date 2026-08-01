@@ -9,8 +9,148 @@ use std::collections::HashMap;
 use chrono::{Local, TimeZone, Utc};
 
 use types::{
-    DayStat, ModelStat, ProjectStat, SessionStat, Source, TokenCounts, UsageSnapshot,
+    BlockStat, DayStat, Insight, ModelStat, ProjectStat, SessionStat, Source, TokenCounts,
+    UsageEvent, UsageSnapshot,
 };
+
+fn short_model(model: &str) -> String {
+    model
+        .trim_start_matches("claude-")
+        .split("-2")
+        .next()
+        .unwrap_or(model)
+        .to_string()
+}
+
+/// Translate today's raw numbers into statements a person can act on.
+fn build_insights(
+    all: &[UsageEvent],
+    days: &[DayStat],
+    today: &DayStat,
+    block: Option<&BlockStat>,
+    today_key: &str,
+) -> Vec<Insight> {
+    let mut insights = Vec::new();
+    let today_total = today.claude_cost + today.codex_cost;
+
+    if let Some(block) = block {
+        if block.is_active {
+            if let Some(eta) = block.eta_minutes {
+                if eta < block.reset_in_minutes {
+                    insights.push(Insight {
+                        kind: "pace".into(),
+                        text: format!(
+                            "At this pace you hit your usual block limit ~{:.0} min before it resets — wrap up soon or switch to a cheaper model.",
+                            block.reset_in_minutes - eta
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    let prior: Vec<f64> = days
+        .iter()
+        .filter(|d| d.date != today_key)
+        .rev()
+        .take(14)
+        .map(|d| d.claude_cost + d.codex_cost)
+        .collect();
+    if today_total > 1.0 && prior.len() >= 3 {
+        let avg = prior.iter().sum::<f64>() / prior.len() as f64;
+        if avg > 0.5 {
+            let ratio = today_total / avg;
+            if ratio >= 1.5 {
+                insights.push(Insight {
+                    kind: "baseline".into(),
+                    text: format!(
+                        "Today is ~{:.1}× your typical day (${:.2} vs a ${:.2} average over your last {} active days).",
+                        ratio, today_total, avg, prior.len()
+                    ),
+                });
+            } else if ratio <= 0.4 {
+                insights.push(Insight {
+                    kind: "cache".into(),
+                    text: format!(
+                        "A quiet day so far — ${:.2} vs your ${:.2} recent average.",
+                        today_total, avg
+                    ),
+                });
+            }
+        }
+    }
+
+    let mut by_driver: HashMap<(String, String), f64> = HashMap::new();
+    let mut premium = 0.0_f64;
+    for event in all {
+        if local_date(event.timestamp_ms) != today_key || event.cost <= 0.0 {
+            continue;
+        }
+        let model = event.model.clone().unwrap_or_else(|| "unknown".into());
+        if model.contains("opus") || model.contains("fable") || model.contains("mythos") {
+            premium += event.cost;
+        }
+        *by_driver
+            .entry((event.project.clone(), model))
+            .or_default() += event.cost;
+    }
+    if today_total > 1.0 {
+        if let Some(((project, model), cost)) = by_driver
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(k, v)| (k.clone(), *v))
+        {
+            let share = cost / today_total * 100.0;
+            if share >= 35.0 {
+                insights.push(Insight {
+                    kind: "driver".into(),
+                    text: format!(
+                        "“{}” on {} is {:.0}% of today's spend (${:.2}).",
+                        project,
+                        short_model(&model),
+                        share,
+                        cost
+                    ),
+                });
+            }
+        }
+        let premium_share = premium / today_total * 100.0;
+        if today_total >= 5.0 && premium_share >= 60.0 {
+            insights.push(Insight {
+                kind: "model-mix".into(),
+                text: format!(
+                    "{:.0}% of today's spend is Opus-class models. Routine tasks on Sonnet cost roughly a fifth as much — worth routing the easy work down.",
+                    premium_share
+                ),
+            });
+        }
+    }
+
+    let prompt_tokens = today.tokens.input + today.tokens.cache_read;
+    if prompt_tokens > 200_000 {
+        let cache_pct = today.tokens.cache_read as f64 / prompt_tokens as f64 * 100.0;
+        if cache_pct >= 60.0 {
+            insights.push(Insight {
+                kind: "cache".into(),
+                text: format!(
+                    "Prompt cache served {:.0}% of today's input tokens — cache reads bill at ~10% of fresh input, so that's working in your favor.",
+                    cache_pct
+                ),
+            });
+        } else if cache_pct <= 20.0 {
+            insights.push(Insight {
+                kind: "model-mix".into(),
+                text: format!(
+                    "Only {:.0}% of today's input tokens came from cache. Long gaps between turns let the 5-minute cache expire — batching related work keeps it warm.",
+                    cache_pct
+                ),
+            });
+        }
+    }
+
+    insights.truncate(4);
+    insights
+}
 
 fn local_date(ts_ms: i64) -> String {
     Utc.timestamp_millis_opt(ts_ms)
@@ -151,6 +291,8 @@ pub fn scan() -> UsageSnapshot {
     let mut models: Vec<ModelStat> = model_map.into_values().collect();
     models.sort_by(|a, b| b.cost.total_cmp(&a.cost));
 
+    let insights = build_insights(&all, &days, &today, block.as_ref(), &today_key);
+
     UsageSnapshot {
         generated_at_ms: now_ms,
         today,
@@ -159,6 +301,7 @@ pub fn scan() -> UsageSnapshot {
         projects,
         models,
         block,
+        insights,
         sessions_today,
         claude_dir_found: claude_found,
         codex_dir_found: codex_found,

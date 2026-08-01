@@ -122,6 +122,16 @@ pub struct BlockStat {
     pub models: Vec<String>,
 }
 
+/// A plain-language explanation of today's numbers: what drove the spend,
+/// whether it's normal, and what (if anything) to do about it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Insight {
+    /// "pace" | "baseline" | "driver" | "model-mix" | "cache"
+    pub kind: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSnapshot {
@@ -133,6 +143,7 @@ pub struct UsageSnapshot {
     pub projects: Vec<ProjectStat>,
     pub models: Vec<ModelStat>,
     pub block: Option<BlockStat>,
+    pub insights: Vec<Insight>,
     pub sessions_today: u64,
     pub claude_dir_found: bool,
     pub codex_dir_found: bool,

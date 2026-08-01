@@ -63,6 +63,11 @@ export interface BlockStat {
   models: string[];
 }
 
+export interface Insight {
+  kind: "pace" | "baseline" | "driver" | "model-mix" | "cache";
+  text: string;
+}
+
 export interface UsageSnapshot {
   generatedAtMs: number;
   today: DayStat;
@@ -71,6 +76,7 @@ export interface UsageSnapshot {
   projects: ProjectStat[];
   models: ModelStat[];
   block: BlockStat | null;
+  insights: Insight[];
   sessionsToday: number;
   claudeDirFound: boolean;
   codexDirFound: boolean;

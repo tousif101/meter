@@ -248,6 +248,33 @@ function Overview({ snapshot }: { snapshot: UsageSnapshot }) {
         </Panel>
       </div>
 
+      {snapshot.insights.length > 0 && (
+        <Panel title="Why today looks like this">
+          <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+            {snapshot.insights.map((insight) => {
+              const color =
+                insight.kind === "pace"
+                  ? t.negative
+                  : insight.kind === "cache"
+                    ? t.positive
+                    : insight.kind === "driver"
+                      ? t.claude
+                      : t.warning;
+              return (
+                <div key={insight.text} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <span style={{ paddingTop: 5 }}>
+                    <Dot color={color} size={7} />
+                  </span>
+                  <span style={{ fontSize: 12.5, lineHeight: 1.55, color: t.textSecondary }}>
+                    {insight.text}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      )}
+
       <Panel title="Model mix">
         <ModelTable snapshot={snapshot} limit={5} />
       </Panel>

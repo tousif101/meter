@@ -53,6 +53,9 @@ fn scan_real_logs() {
             &session.session_id[..session.session_id.len().min(12)]
         );
     }
+    for insight in &snapshot.insights {
+        println!("  insight [{}] {}", insight.kind, insight.text);
+    }
     for day in snapshot.days.iter().rev().take(7) {
         println!(
             "  day {} claude=${:.2} codex=${:.2}",
