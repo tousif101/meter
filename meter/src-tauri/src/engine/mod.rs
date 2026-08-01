@@ -170,16 +170,21 @@ pub fn scan() -> UsageSnapshot {
     let mut all = claude_events;
     all.extend(codex_events);
 
-    // Daily buckets (local timezone), last 30 days.
+    // Daily buckets (local timezone), up to a year of history for reports.
     let mut day_map: HashMap<String, DayStat> = HashMap::new();
+    let mut day_models: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
     let today_key = local_date(now_ms);
     for event in &all {
         let date = local_date(event.timestamp_ms);
+        if let Some(model) = &event.model {
+            day_models.entry(date.clone()).or_default().insert(short_model(model));
+        }
         let day = day_map.entry(date.clone()).or_insert_with(|| DayStat {
             date,
             claude_cost: 0.0,
             codex_cost: 0.0,
             tokens: TokenCounts::default(),
+            models: Vec::new(),
         });
         match event.source {
             Source::Claude => day.claude_cost += event.cost,
@@ -187,10 +192,15 @@ pub fn scan() -> UsageSnapshot {
         }
         day.tokens.add(&event.tokens);
     }
-    let mut days: Vec<DayStat> = day_map.values().cloned().collect();
+    let mut days: Vec<DayStat> = day_map.into_values().collect();
+    for day in &mut days {
+        if let Some(models) = day_models.get(&day.date) {
+            day.models = models.iter().cloned().collect();
+        }
+    }
     days.sort_by(|a, b| a.date.cmp(&b.date));
-    if days.len() > 30 {
-        days.drain(..days.len() - 30);
+    if days.len() > 365 {
+        days.drain(..days.len() - 365);
     }
     let today = days
         .iter()
@@ -201,6 +211,7 @@ pub fn scan() -> UsageSnapshot {
             claude_cost: 0.0,
             codex_cost: 0.0,
             tokens: TokenCounts::default(),
+            models: Vec::new(),
         });
 
     // Sessions.

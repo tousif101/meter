@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Bar, Dot, Kpi, Num, Panel, PulseDot, SplitBar } from "./components";
 import { label, mono, t, ui } from "./theme";
 import {
@@ -14,7 +14,7 @@ import {
 } from "./types";
 import { useUsage } from "./useUsage";
 
-const SCREENS = ["Overview", "Sessions", "Projects", "Models", "Cost & budgets", "Settings"] as const;
+const SCREENS = ["Overview", "Sessions", "Projects", "Models", "Reports", "Cost & budgets", "Settings"] as const;
 type Screen = (typeof SCREENS)[number];
 
 function Sidebar({
@@ -524,8 +524,192 @@ function ModelTable({ snapshot, limit }: { snapshot: UsageSnapshot; limit?: numb
   );
 }
 
+type ReportMode = "daily" | "weekly" | "monthly";
+
+interface ReportRow {
+  key: string;
+  label: string;
+  models: Set<string>;
+  tokens: { input: number; output: number; cacheCreate: number; cacheRead: number };
+  cost: number;
+  isCurrent: boolean;
+}
+
+function weekStartOf(date: string): Date {
+  const d = new Date(date + "T12:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+function Reports({ snapshot }: { snapshot: UsageSnapshot }) {
+  const [mode, setMode] = useState<ReportMode>("daily");
+  const todayKey = snapshot.days[snapshot.days.length - 1]?.date ?? "";
+
+  const buckets = new Map<string, ReportRow>();
+  for (const day of snapshot.days) {
+    let key: string;
+    let rowLabel: string;
+    if (mode === "daily") {
+      key = day.date;
+      rowLabel =
+        day.date === todayKey
+          ? "Today"
+          : new Date(day.date + "T12:00:00").toLocaleDateString([], {
+              month: "short",
+              day: "numeric",
+              weekday: "short",
+            });
+    } else if (mode === "monthly") {
+      key = day.date.slice(0, 7);
+      rowLabel = new Date(day.date + "T12:00:00").toLocaleDateString([], {
+        month: "long",
+        year: "numeric",
+      });
+    } else {
+      const start = weekStartOf(day.date);
+      key = start.toDateString();
+      rowLabel = `Wk of ${start.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+    }
+    const row =
+      buckets.get(key) ??
+      ({
+        key,
+        label: rowLabel,
+        models: new Set<string>(),
+        tokens: { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 },
+        cost: 0,
+        isCurrent: false,
+      } as ReportRow);
+    day.models.forEach((m) => row.models.add(m));
+    row.tokens.input += day.tokens.input;
+    row.tokens.output += day.tokens.output;
+    row.tokens.cacheCreate += day.tokens.cacheCreate;
+    row.tokens.cacheRead += day.tokens.cacheRead;
+    row.cost += day.claudeCost + day.codexCost;
+    if (day.date === todayKey) row.isCurrent = true;
+    buckets.set(key, row);
+  }
+  const rows = [...buckets.values()].reverse();
+  const totals = rows.reduce(
+    (acc, r) => ({
+      input: acc.input + r.tokens.input,
+      output: acc.output + r.tokens.output,
+      cacheCreate: acc.cacheCreate + r.tokens.cacheCreate,
+      cacheRead: acc.cacheRead + r.tokens.cacheRead,
+      cost: acc.cost + r.cost,
+    }),
+    { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0 },
+  );
+
+  const grid = "110px 1.3fr 76px 76px 86px 86px 80px 80px";
+  const cell: CSSProperties = { fontFamily: mono, fontSize: 12, textAlign: "right" };
+
+  return (
+    <Panel style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", gap: 6, padding: "12px 14px", borderBottom: `1px solid ${t.border}` }}>
+        {(["daily", "weekly", "monthly"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            style={{
+              background: mode === m ? t.activeNav : "transparent",
+              color: mode === m ? t.textPrimary : t.textMuted,
+              border: `1px solid ${mode === m ? t.borderStrong : "transparent"}`,
+              borderRadius: 7,
+              padding: "5px 14px",
+              fontSize: 12.5,
+              cursor: "pointer",
+              textTransform: "capitalize",
+            }}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: grid,
+          gap: 10,
+          padding: "10px 14px",
+          background: t.panelRaised,
+          borderBottom: `1px solid ${t.border}`,
+          ...label,
+        }}
+      >
+        <span>Period</span>
+        <span>Models</span>
+        <span style={{ textAlign: "right" }}>Input</span>
+        <span style={{ textAlign: "right" }}>Output</span>
+        <span style={{ textAlign: "right" }}>Cache W</span>
+        <span style={{ textAlign: "right" }}>Cache R</span>
+        <span style={{ textAlign: "right" }}>Total</span>
+        <span style={{ textAlign: "right" }}>Cost</span>
+      </div>
+      <div style={{ overflowY: "auto", maxHeight: "calc(100vh - 260px)" }}>
+        {rows.map((row) => (
+          <div
+            key={row.key}
+            style={{
+              display: "grid",
+              gridTemplateColumns: grid,
+              gap: 10,
+              alignItems: "center",
+              padding: "9px 14px",
+              borderBottom: `1px solid ${t.borderSubtle}`,
+              background: row.isCurrent && mode === "daily" ? t.selected : "transparent",
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: row.isCurrent ? t.textPrimary : t.textBody }}>{row.label}</span>
+            <span
+              style={{
+                fontFamily: mono,
+                fontSize: 10.5,
+                color: t.textFaint,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {[...row.models].join(", ")}
+            </span>
+            <span style={{ ...cell, color: t.textSecondary }}>{fmtTokens(row.tokens.input)}</span>
+            <span style={{ ...cell, color: t.textSecondary }}>{fmtTokens(row.tokens.output)}</span>
+            <span style={{ ...cell, color: t.textFaint }}>{fmtTokens(row.tokens.cacheCreate)}</span>
+            <span style={{ ...cell, color: t.textFaint }}>{fmtTokens(row.tokens.cacheRead)}</span>
+            <span style={{ ...cell, color: t.textSecondary }}>
+              {fmtTokens(row.tokens.input + row.tokens.output + row.tokens.cacheCreate + row.tokens.cacheRead)}
+            </span>
+            <span style={{ ...cell, color: t.textPrimary, fontWeight: 600 }}>{fmtUsd(row.cost)}</span>
+          </div>
+        ))}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: grid,
+            gap: 10,
+            padding: "11px 14px",
+            background: t.panelRaised,
+          }}
+        >
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: t.textPrimary }}>Total</span>
+          <span />
+          <span style={{ ...cell, color: t.textBody }}>{fmtTokens(totals.input)}</span>
+          <span style={{ ...cell, color: t.textBody }}>{fmtTokens(totals.output)}</span>
+          <span style={{ ...cell, color: t.textMuted }}>{fmtTokens(totals.cacheCreate)}</span>
+          <span style={{ ...cell, color: t.textMuted }}>{fmtTokens(totals.cacheRead)}</span>
+          <span style={{ ...cell, color: t.textBody }}>
+            {fmtTokens(totals.input + totals.output + totals.cacheCreate + totals.cacheRead)}
+          </span>
+          <span style={{ ...cell, color: t.textPrimary, fontWeight: 600 }}>{fmtUsd(totals.cost)}</span>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function Budgets({ snapshot }: { snapshot: UsageSnapshot }) {
-  const days = snapshot.days;
+  const days = snapshot.days.slice(-30);
   const todayTotal = snapshot.today.claudeCost + snapshot.today.codexCost;
   const weekTotal = days.slice(-7).reduce((a, d) => a + d.claudeCost + d.codexCost, 0);
   const monthTotal = days.reduce((a, d) => a + d.claudeCost + d.codexCost, 0);
@@ -625,6 +809,8 @@ export default function MainWindow() {
           <Panel title="Models">
             <ModelTable snapshot={snapshot} />
           </Panel>
+        ) : screen === "Reports" ? (
+          <Reports snapshot={snapshot} />
         ) : screen === "Cost & budgets" ? (
           <Budgets snapshot={snapshot} />
         ) : (

@@ -13,6 +13,7 @@ export interface DayStat {
   claudeCost: number;
   codexCost: number;
   tokens: TokenCounts;
+  models: string[];
 }
 
 export interface SessionStat {

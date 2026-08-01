@@ -52,6 +52,7 @@ pub struct DayStat {
     pub claude_cost: f64,
     pub codex_cost: f64,
     pub tokens: TokenCounts,
+    pub models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
